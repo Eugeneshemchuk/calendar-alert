@@ -1,0 +1,48 @@
+name: Check important calendar events
+
+on:
+  schedule:
+    # Every 5 minutes. GitHub's scheduler is best-effort and can lag
+    # a few minutes during high load, which is fine for a 15-min lookahead.
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}  # lets you trigger a manual test run from the Actions tab
+
+permissions:
+  contents: write  # needed to commit the updated state.json back to the repo
+
+jobs:
+  check-events:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: calendar-alert-run
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run alert check
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_FROM_NUMBER: ${{ secrets.TWILIO_FROM_NUMBER }}
+          ALERT_PHONE_NUMBER: ${{ secrets.ALERT_PHONE_NUMBER }}
+        run: python calendar_alert.py
+
+      - name: Commit updated state
+        run: |
+          git config user.name "calendar-alert-bot"
+          git config user.email "actions@github.com"
+          git add state.json
+          git diff --staged --quiet || git commit -m "Update alert state [skip ci]"
+          git push

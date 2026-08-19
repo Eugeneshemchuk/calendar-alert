@@ -1,0 +1,5 @@
+client_secret.json
+github_repo_secrets.json
+.env
+.DS_Store
+Claude.dmg
