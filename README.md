@@ -83,6 +83,123 @@ description.
   fine at 1 user / low frequency. Swap for a KV store (e.g. Upstash Redis)
   if this ever bugs you.
 
+## Testing & debugging
+
+All commands assume you're in the repo folder. Commands that hit the Twilio
+API read credentials straight out of `twillio_secrets` (local, gitignored —
+see [One-time setup](#2-twilio)); adjust the `grep` lines if you keep them
+somewhere else.
+
+### 1. Trigger a manual workflow run
+
+```
+gh workflow run check-important-events.yml
+```
+
+Queues an out-of-schedule run of the whole pipeline (Calendar check → Twilio
+call → commit `state.json`), same as clicking "Run workflow" in the Actions
+tab. Use this after any code/secret change instead of waiting for the next
+5-min cron tick.
+
+### 2. Find the run and watch it live
+
+```
+gh run list --workflow=check-important-events.yml --limit 1 --json databaseId -q '.[0].databaseId'
+gh run watch <run-id> --exit-status
+```
+
+The first command prints the numeric ID of the most recent run (grab it
+right after step 1). `gh run watch` streams step-by-step progress
+(Checkout → Install deps → Run alert check → Commit state) and exits
+non-zero if the run fails — useful in scripts, not just for reading.
+
+### 3. Read the actual script output (the important one)
+
+```
+gh run view <run-id> --log | grep -i "flagged\|failed to alert\|Called for event"
+```
+
+`gh run watch` only tells you whether steps *ran*, not whether the alert
+logic *worked*. This greps the log for the three lines `calendar_alert.py`
+actually prints: how many `!important` events it found in the 15-min
+window, and whether each call succeeded (`Called for event ... -> Twilio SID
+...`) or failed (`Failed to alert for event ...: <reason>`). Read this after
+every test run — a green run in step 2 just means no Python exception,
+not that a call went out.
+
+### 4. Check what kind of Twilio account you have
+
+```
+SID=$(grep ACCOUNT_SID twillio_secrets | cut -d= -f2)
+TOKEN=$(grep AUTH_TOKEN twillio_secrets | cut -d= -f2)
+curl -s -u "$SID:$TOKEN" "https://api.twilio.com/2010-04-01/Accounts/$SID.json" \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); print('type:', d['type']); print('status:', d['status'])"
+```
+
+`type` is `Trial` or `Full`. Trial accounts have real restrictions (see
+below) that produce cryptic 400 errors — check this first whenever a call
+fails with "trial accounts have limited parameter access".
+
+### 5. List phone numbers you actually own
+
+```
+curl -s -u "$SID:$TOKEN" "https://api.twilio.com/2010-04-01/Accounts/$SID/IncomingPhoneNumbers.json" \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); [print(n['phone_number']) for n in d['incoming_phone_numbers']]"
+```
+
+`TWILIO_FROM_NUMBER` must be a number this list contains — it's what you're
+allowed to place outbound calls *from*. An empty list means you haven't
+claimed/bought a Twilio number yet, which will fail every call regardless
+of anything else being correct.
+
+### 6. List verified caller IDs (trial accounts only)
+
+```
+curl -s -u "$SID:$TOKEN" "https://api.twilio.com/2010-04-01/Accounts/$SID/OutgoingCallerIds.json" \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); [print(n['phone_number']) for n in d['outgoing_caller_ids']]"
+```
+
+On a trial account, `ALERT_PHONE_NUMBER` (the number you're calling *to*)
+generally needs to appear here — add it via Console → Phone Numbers →
+Verified Caller IDs if it's missing. Not needed on a paid account.
+
+### 7. Check recent call attempts and their error codes
+
+```
+curl -s -u "$SID:$TOKEN" "https://api.twilio.com/2010-04-01/Accounts/$SID/Calls.json?PageSize=10" \
+  | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+for c in d['calls']:
+    print(c['date_created'], '|', c['from'], '->', c['to'], '|', c['status'], '| error:', c.get('error_code'), c.get('error_message'))
+"
+```
+
+Shows Twilio's own call log — includes calls made from the console *and*
+from the script. Useful to confirm a From/To pair works at all (e.g. via a
+manual test call in the console) before suspecting the script's TwiML.
+Note: a call that gets rejected at the REST API level (a 400, before Twilio
+even attempts to dial) won't show up here at all — only calls that were
+accepted for dialing do.
+
+### 8. Reproduce a failing call directly (bypass the script/workflow)
+
+```
+FROM=$(grep TWILIO_FROM_NUMBER twillio_secrets | cut -d= -f2)
+TO=$(grep ALERT_PHONE_NUMBER twillio_secrets | cut -d= -f2)
+TWIML='<Response><Say voice="alice">Test message.</Say></Response>'
+
+curl -s -u "$SID:$TOKEN" -X POST "https://api.twilio.com/2010-04-01/Accounts/$SID/Calls.json" \
+  --data-urlencode "To=$TO" \
+  --data-urlencode "From=$FROM" \
+  --data-urlencode "Twiml=$TWIML"
+```
+
+**This places a real phone call — only run it when you intend to.** Isolates
+whether a failure is caused by the TwiML content/voice vs. something about
+the From/To pair or account state, without waiting on a GitHub Actions run
+or burning a `!important` calendar event to trigger one.
+
 ## Natural v2 ideas
 
 - Snooze/dismiss by pressing a key during the call (Twilio `<Gather>`)
