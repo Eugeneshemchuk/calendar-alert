@@ -108,9 +108,9 @@ def make_alert_call(event):
 
     twiml = f"""
     <Response>
-        <Say voice="Polly.Joanna">{escape_for_twiml(message)}</Say>
+        <Say voice="alice">{escape_for_twiml(message)}</Say>
         <Pause length="1"/>
-        <Say voice="Polly.Joanna">Repeating. {escape_for_twiml(message)}</Say>
+        <Say voice="alice">Repeating. {escape_for_twiml(message)}</Say>
     </Response>
     """
 
