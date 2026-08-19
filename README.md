@@ -31,12 +31,20 @@ in the title is about to start. Runs as a GitHub Actions cron job every
 
 ### 2. Twilio
 
-1. Create a [Twilio account](https://www.twilio.com/try-twilio), buy a phone number capable of voice calls.
-2. Grab your **Account SID** and **Auth Token** from the console dashboard.
-3. Note the Twilio number (`TWILIO_FROM_NUMBER`) and your own cell number
-   (`ALERT_PHONE_NUMBER`), both in E.164 format, e.g. `+31612345678`.
-4. Trial accounts can usually only call verified numbers — verify your own
-   number in the Twilio console, or upgrade the account.
+1. Create a [Twilio account](https://www.twilio.com/try-twilio) and
+   **upgrade it to a paid account** (add a payment method in the console).
+   Trial accounts only allow calls to pre-verified numbers, and verification
+   itself is restricted to your sign-up country — in practice this makes
+   trial unworkable for alerting a number in a different country. Calls
+   cost about a cent a minute, so paid is cheap.
+2. Complete Twilio's compliance/KYC step: **Console → Trust Hub → Customer
+   Profiles**. Paid accounts can't place calls until this is approved —
+   budget a few minutes for identity verification.
+3. Buy a phone number capable of voice calls (Console → Phone Numbers).
+4. Grab your **Account SID** and **Auth Token** from the console dashboard.
+5. Note the Twilio number you bought (`TWILIO_FROM_NUMBER`) and your own
+   cell number (`ALERT_PHONE_NUMBER`), both in E.164 format, e.g.
+   `+31612345678`.
 
 ### 3. GitHub repo secrets
 
