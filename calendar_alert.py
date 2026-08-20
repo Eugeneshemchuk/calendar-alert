@@ -41,6 +41,14 @@ def get_calendar_service():
     return build("calendar", "v3", credentials=creds)
 
 
+def _event_start(event):
+    start = event["start"].get("dateTime", event["start"].get("date"))
+    dt = datetime.fromisoformat(start)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def get_upcoming_flagged_events(service):
     now = datetime.now(timezone.utc)
     window_end = now + timedelta(minutes=LOOKAHEAD_MINUTES)
@@ -54,9 +62,13 @@ def get_upcoming_flagged_events(service):
     ).execute()
 
     events = events_result.get("items", [])
+    # timeMin/timeMax filter on event end/start (overlap semantics), so an
+    # already-started-but-not-yet-ended event can still match. Only alert
+    # for events that haven't started yet.
     flagged = [
         e for e in events
         if FLAG.lower() in e.get("summary", "").lower()
+        and _event_start(e) >= now
     ]
     return flagged
 
